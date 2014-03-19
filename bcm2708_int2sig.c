@@ -22,7 +22,6 @@
 // text below will be seen in 'cat /proc/interrupt' command
 #define GPIO_ANY_GPIO_DESC "GPIO Interrupt to POSIX signal"
 
-#define GPIO_ANY_GPIO 3
 #define FIRST_GPIO 2
 #define SECOND_GPIO 3
 
@@ -63,41 +62,46 @@ unsigned int millis (void)
 /* IRQ handler - fired on interrupt                                         */
 /***************************************************************************/
 
-__always_inline irqreturn_t r_irq_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
-    unsigned int interrupt_time = millis();
+__always_inline irqreturn_t gpio_int_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
     struct task_struct *task;
     int status;
+
+    if(recipient_pid == -1) {
+            printk("interrupt handling task not set\n");
+            return IRQ_HANDLED;
+        }
+
+        task = pid_task(find_vpid(recipient_pid), PIDTYPE_PID);
+        if(!task) {
+            printk("error finding interrupt handling task\n");
+            return IRQ_HANDLED;
+        }
+
+        status = send_sig(22, task, 0); // send SIGPOLL
+        if (0 > status) {
+            printk("error sending signal\n");
+            return IRQ_HANDLED;
+        }
+
+        return IRQ_HANDLED;
+}
+
+__always_inline irqreturn_t debounced_gpio_int_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
+    unsigned int interrupt_time = millis();
   
-    if (interrupt_time - last_interrupt_time < 1000)
+    if (interrupt_time - last_interrupt_time < 100)
         return IRQ_HANDLED;
     last_interrupt_time = interrupt_time;
 
-    if(recipient_pid == -1) {
-        printk("interrupt handling task not set\n");
-        return IRQ_HANDLED;
-    }
-
-    task = pid_task(find_vpid(recipient_pid), PIDTYPE_PID);
-    if(!task) {
-        printk("error finding interrupt handling task\n");
-        return IRQ_HANDLED;
-    }
-
-    status = send_sig(22, task, 0); // send SIGPOLL
-    if (0 > status) {
-        printk("error sending signal\n");
-        return IRQ_HANDLED;
-    }
-
-    return IRQ_HANDLED;
+    return gpio_int_handler(irq, dev_id, regs, recipient_pid);
 }
 
 static irqreturn_t irq_handler_first_gpio(int irq, void *dev_id, struct pt_regs *regs) {
-    return r_irq_handler(irq, dev_id, regs, first_handling_task_pid);
+    return debounced_gpio_int_handler(irq, dev_id, regs, first_handling_task_pid);
 }
 
 static irqreturn_t irq_handler_second_gpio(int irq, void *dev_id, struct pt_regs *regs) {
-    return r_irq_handler(irq, dev_id, regs, second_handling_task_pid);
+    return debounced_gpio_int_handler(irq, dev_id, regs, second_handling_task_pid);
 }
 
 void config_int(int gpio, short int *irq_gpio, irq_handler_t handler) {
