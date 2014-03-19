@@ -23,6 +23,8 @@
 #define GPIO_ANY_GPIO_DESC "GPIO Interrupt to POSIX signal"
 
 #define GPIO_ANY_GPIO 3
+#define FIRST_GPIO 2
+#define SECOND_GPIO 3
 
 volatile unsigned int val;
 
@@ -33,14 +35,18 @@ MODULE_DESCRIPTION("A module translating GPIO Interrupts to POSIX signals");
 static char *msg=NULL;
 
 unsigned long flags;
-int handling_task_pid = -1;
-module_param(handling_task_pid, int, S_IRUGO | S_IWUSR);
+
+int first_handling_task_pid = -1;
+int second_handling_task_pid = -1;
+module_param(first_handling_task_pid, int, S_IRUGO | S_IWUSR);
+module_param(second_handling_task_pid, int, S_IRUGO | S_IWUSR);
 
 
 unsigned int last_interrupt_time = 0;
 static uint64_t epochMilli;
 
 short int irq_gpio0 = 0;
+short int irq_gpio1 = 0;
 
 unsigned int millis (void)
 {
@@ -57,7 +63,7 @@ unsigned int millis (void)
 /* IRQ handler - fired on interrupt                                         */
 /***************************************************************************/
 
-static irqreturn_t r_irq_handler(int irq, void *dev_id, struct pt_regs *regs) {
+__always_inline irqreturn_t r_irq_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
     unsigned int interrupt_time = millis();
     struct task_struct *task;
     int status;
@@ -66,14 +72,12 @@ static irqreturn_t r_irq_handler(int irq, void *dev_id, struct pt_regs *regs) {
         return IRQ_HANDLED;
     last_interrupt_time = interrupt_time;
 
- // printk(KERN_NOTICE "received interrupt\n");
-
-    if(handling_task_pid == -1) {
+    if(recipient_pid == -1) {
         printk("interrupt handling task not set\n");
         return IRQ_HANDLED;
     }
 
-    task = pid_task(find_vpid(handling_task_pid), PIDTYPE_PID);
+    task = pid_task(find_vpid(recipient_pid), PIDTYPE_PID);
     if(!task) {
         printk("error finding interrupt handling task\n");
         return IRQ_HANDLED;
@@ -88,7 +92,15 @@ static irqreturn_t r_irq_handler(int irq, void *dev_id, struct pt_regs *regs) {
     return IRQ_HANDLED;
 }
 
-void config_int(int gpio, int *irq_gpio) {
+static irqreturn_t irq_handler_first_gpio(int irq, void *dev_id, struct pt_regs *regs) {
+    return r_irq_handler(irq, dev_id, regs, first_handling_task_pid);
+}
+
+static irqreturn_t irq_handler_second_gpio(int irq, void *dev_id, struct pt_regs *regs) {
+    return r_irq_handler(irq, dev_id, regs, second_handling_task_pid);
+}
+
+void config_int(int gpio, short int *irq_gpio, irq_handler_t handler) {
     if (gpio_request(gpio, GPIO_ANY_GPIO_DESC)) {
         printk("GPIO request failure: %s\n", GPIO_ANY_GPIO_DESC);
         return;
@@ -102,7 +114,7 @@ void config_int(int gpio, int *irq_gpio) {
     printk(KERN_NOTICE "Mapped int %d\n", *irq_gpio);
 
     if (request_irq(*irq_gpio,
-                   (irq_handler_t ) r_irq_handler,
+                   handler,
                    IRQF_TRIGGER_RISING,
                    GPIO_ANY_GPIO_DESC,
                    NULL)) {
@@ -122,7 +134,8 @@ void r_int_config(void) {
     do_gettimeofday(&tv) ;
     epochMilli = (uint64_t)tv.tv_sec * (uint64_t)1000 + (uint64_t)(tv.tv_usec / 1000) ;
 
-    config_int(GPIO_ANY_GPIO, &irq_gpio0);
+    config_int(FIRST_GPIO, &irq_gpio0, (irq_handler_t)irq_handler_first_gpio);
+    config_int(SECOND_GPIO, &irq_gpio1, (irq_handler_t)irq_handler_second_gpio);
 
     return;
 }
@@ -134,7 +147,9 @@ void r_int_config(void) {
 
 void r_int_release(void) {
     free_irq(irq_gpio0, NULL);
-    gpio_free(GPIO_ANY_GPIO);
+    free_irq(irq_gpio1, NULL);
+    gpio_free(FIRST_GPIO);
+    gpio_free(SECOND_GPIO);
 }
 
 int init_module(void)

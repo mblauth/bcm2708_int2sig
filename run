@@ -1,6 +1,6 @@
 #!/bin/bash
 
 ./SignalHandler &
-sudo echo $!> /sys/module/bcm2708_int2sig/parameters/handling_task_pid
+sudo echo $!> /sys/module/bcm2708_int2sig/parameters/first_handling_task_pid
 wait
 
