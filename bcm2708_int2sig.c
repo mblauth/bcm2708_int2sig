@@ -30,11 +30,11 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marvin Blauth");
 MODULE_DESCRIPTION("A module translating GPIO Interrupts to POSIX signals");
 
-static char   *msg=NULL;
+static char *msg=NULL;
 
 unsigned long flags;
 int handling_task_pid = -1;
-module_param(handling_task_pid, int, 0);
+module_param(handling_task_pid, int, S_IRUGO | S_IWUSR);
 
 /****************************************************************************/
 /* Interrupts variables block                                               */
