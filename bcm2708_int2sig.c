@@ -16,6 +16,7 @@
 #include <mach/platform.h>
 #include <mach/gpio.h>
 #include <linux/time.h>
+#include <linux/delay.h>
 
 #include "RPI.h"
 
@@ -24,6 +25,7 @@
 
 #define FIRST_GPIO 2
 #define SECOND_GPIO 3
+#define THIRD_GPIO 8
 
 volatile unsigned int val;
 
@@ -37,15 +39,22 @@ unsigned long flags;
 
 int first_handling_task_pid = -1;
 int second_handling_task_pid = -1;
+int third_handling_task_pid = -1;
+
 module_param(first_handling_task_pid, int, S_IRUGO | S_IWUSR);
 module_param(second_handling_task_pid, int, S_IRUGO | S_IWUSR);
+module_param(third_handling_task_pid, int, S_IRUGO | S_IWUSR);
 
 
 unsigned int last_interrupt_time = 0;
 static uint64_t epochMilli;
+static struct timer_list my_timer;
 
 short int irq_gpio0 = 0;
 short int irq_gpio1 = 0;
+short int irq_gpio2 = 0;
+
+struct task_struct* third_handling_task;
 
 unsigned int millis (void)
 {
@@ -58,12 +67,17 @@ unsigned int millis (void)
     return (uint32_t)(now - epochMilli) ;
 }
 
-/****************************************************************************/
-/* IRQ handler - fired on interrupt                                         */
-/***************************************************************************/
+__always_inline struct task_struct* task_for_pid(long pid) {
+    return pid_task(find_vpid(pid), PIDTYPE_PID);
+}
+
+void load_tasks_for_pids(unsigned long data) {
+    printk("loading tasks\n");
+    third_handling_task = task_for_pid(third_handling_task_pid);
+    mod_timer(&my_timer, jiffies + msecs_to_jiffies(500));
+}
 
 __always_inline irqreturn_t gpio_int_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
-    struct task_struct *task;
     int status;
 
     if(recipient_pid == -1) {
@@ -71,13 +85,7 @@ __always_inline irqreturn_t gpio_int_handler(int irq, void *dev_id, struct pt_re
         return IRQ_HANDLED;
     }
 
-    task = pid_task(find_vpid(recipient_pid), PIDTYPE_PID);
-    if(!task) {
-        printk("error finding interrupt handling task\n");
-        return IRQ_HANDLED;
-    }
-
-    status = send_sig(22, task, 0); // send SIGPOLL
+    status = send_sig(22, third_handling_task, 0); // send SIGPOLL
     if (0 > status) {
         printk("error sending signal\n");
         return IRQ_HANDLED;
@@ -89,7 +97,7 @@ __always_inline irqreturn_t gpio_int_handler(int irq, void *dev_id, struct pt_re
 __always_inline irqreturn_t debounced_gpio_int_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
     unsigned int interrupt_time = millis();
   
-    if (interrupt_time - last_interrupt_time < 100)
+    if (interrupt_time - last_interrupt_time < 1000)
         return IRQ_HANDLED;
     last_interrupt_time = interrupt_time;
 
@@ -102,6 +110,10 @@ static irqreturn_t irq_handler_first_gpio(int irq, void *dev_id, struct pt_regs 
 
 static irqreturn_t irq_handler_second_gpio(int irq, void *dev_id, struct pt_regs *regs) {
     return debounced_gpio_int_handler(irq, dev_id, regs, second_handling_task_pid);
+}
+
+static irqreturn_t irq_handler_third_gpio(int irq, void *dev_id, struct pt_regs *regs) {
+    return gpio_int_handler(irq, dev_id, regs, third_handling_task_pid);
 }
 
 void config_int(int gpio, short int *irq_gpio, irq_handler_t handler) {
@@ -138,8 +150,9 @@ void r_int_config(void) {
     do_gettimeofday(&tv) ;
     epochMilli = (uint64_t)tv.tv_sec * (uint64_t)1000 + (uint64_t)(tv.tv_usec / 1000) ;
 
-    config_int(FIRST_GPIO, &irq_gpio0, (irq_handler_t)irq_handler_first_gpio);
-    config_int(SECOND_GPIO, &irq_gpio1, (irq_handler_t)irq_handler_second_gpio);
+    //config_int(FIRST_GPIO, &irq_gpio0, (irq_handler_t)irq_handler_first_gpio);
+    //config_int(SECOND_GPIO, &irq_gpio1, (irq_handler_t)irq_handler_second_gpio);
+    config_int(THIRD_GPIO, &irq_gpio2, (irq_handler_t)irq_handler_third_gpio);
 
     return;
 }
@@ -150,10 +163,12 @@ void r_int_config(void) {
 /****************************************************************************/
 
 void r_int_release(void) {
-    free_irq(irq_gpio0, NULL);
-    free_irq(irq_gpio1, NULL);
-    gpio_free(FIRST_GPIO);
-    gpio_free(SECOND_GPIO);
+    //free_irq(irq_gpio0, NULL);
+    //free_irq(irq_gpio1, NULL);
+    free_irq(irq_gpio2, NULL);
+    //gpio_free(FIRST_GPIO);
+    //gpio_free(SECOND_GPIO);
+    gpio_free(THIRD_GPIO);
 }
 
 int init_module(void)
@@ -168,9 +183,16 @@ int init_module(void)
     if (msg !=NULL)
         printk("malloc allocator address: 0x%x\n", msg);
 
-    INP_GPIO(3);
+    //INP_GPIO(FIRST_GPIO);
+    //INP_GPIO(SECOND_GPIO);
+    INP_GPIO(THIRD_GPIO);
+    PULL_UP(THIRD_GPIO);
+    PULL_DOWN(17);
 
     r_int_config();
+
+    setup_timer(&my_timer, load_tasks_for_pids, 0);
+    mod_timer(&my_timer, jiffies + msecs_to_jiffies(500));
 
     return 0;
 }
@@ -178,6 +200,8 @@ int init_module(void)
 void cleanup_module(void)
 {
     printk("unloading bcm2708_int2sig\n");
+
+    del_timer_sync(&my_timer);
 
     r_int_release();
     /* if the timer was mapped (final step of successful module init) */
@@ -190,47 +214,6 @@ void cleanup_module(void)
         kfree(msg);
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
