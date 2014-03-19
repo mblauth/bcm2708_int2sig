@@ -67,23 +67,23 @@ __always_inline irqreturn_t gpio_int_handler(int irq, void *dev_id, struct pt_re
     int status;
 
     if(recipient_pid == -1) {
-            printk("interrupt handling task not set\n");
-            return IRQ_HANDLED;
-        }
-
-        task = pid_task(find_vpid(recipient_pid), PIDTYPE_PID);
-        if(!task) {
-            printk("error finding interrupt handling task\n");
-            return IRQ_HANDLED;
-        }
-
-        status = send_sig(22, task, 0); // send SIGPOLL
-        if (0 > status) {
-            printk("error sending signal\n");
-            return IRQ_HANDLED;
-        }
-
+        printk("interrupt handling task not set\n");
         return IRQ_HANDLED;
+    }
+
+    task = pid_task(find_vpid(recipient_pid), PIDTYPE_PID);
+    if(!task) {
+        printk("error finding interrupt handling task\n");
+        return IRQ_HANDLED;
+    }
+
+    status = send_sig(22, task, 0); // send SIGPOLL
+    if (0 > status) {
+        printk("error sending signal\n");
+        return IRQ_HANDLED;
+    }
+
+    return IRQ_HANDLED;
 }
 
 __always_inline irqreturn_t debounced_gpio_int_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
