@@ -36,13 +36,11 @@ unsigned long flags;
 int handling_task_pid = -1;
 module_param(handling_task_pid, int, S_IRUGO | S_IWUSR);
 
-/****************************************************************************/
-/* Interrupts variables block                                               */
-/****************************************************************************/
-short int irq_any_gpio = 0;
 
 unsigned int last_interrupt_time = 0;
 static uint64_t epochMilli;
+
+short int irq_gpio0 = 0;
 
 unsigned int millis (void)
 {
@@ -90,6 +88,29 @@ static irqreturn_t r_irq_handler(int irq, void *dev_id, struct pt_regs *regs) {
     return IRQ_HANDLED;
 }
 
+void config_int(int gpio, int *irq_gpio) {
+    if (gpio_request(gpio, GPIO_ANY_GPIO_DESC)) {
+        printk("GPIO request failure: %s\n", GPIO_ANY_GPIO_DESC);
+        return;
+    }
+
+    if ((*irq_gpio = gpio_to_irq(gpio)) < 0 ) {
+        printk("GPIO to IRQ mapping failure %s\n", GPIO_ANY_GPIO_DESC);
+        return;
+    }
+
+    printk(KERN_NOTICE "Mapped int %d\n", *irq_gpio);
+
+    if (request_irq(*irq_gpio,
+                   (irq_handler_t ) r_irq_handler,
+                   IRQF_TRIGGER_RISING,
+                   GPIO_ANY_GPIO_DESC,
+                   NULL)) {
+        printk("Irq Request failure\n");
+        return;
+    }
+}
+
 /****************************************************************************/
 /* This function configures interrupts.                                     */
 /****************************************************************************/
@@ -99,30 +120,11 @@ void r_int_config(void) {
     struct timeval tv ;
 
     do_gettimeofday(&tv) ;
-    epochMilli = (uint64_t)tv.tv_sec * (uint64_t)1000    + (uint64_t)(tv.tv_usec / 1000) ;
+    epochMilli = (uint64_t)tv.tv_sec * (uint64_t)1000 + (uint64_t)(tv.tv_usec / 1000) ;
 
-    if (gpio_request(GPIO_ANY_GPIO, GPIO_ANY_GPIO_DESC)) {
-        printk("GPIO request failure: %s\n", GPIO_ANY_GPIO_DESC);
-        return;
-    }
+    config_int(GPIO_ANY_GPIO, &irq_gpio0);
 
-    if ( (irq_any_gpio = gpio_to_irq(GPIO_ANY_GPIO)) < 0 ) {
-        printk("GPIO to IRQ mapping failure %s\n", GPIO_ANY_GPIO_DESC);
-        return;
-    }
-
-    printk(KERN_NOTICE "Mapped int %d\n", irq_any_gpio);
-
-    if (request_irq(irq_any_gpio,
-                   (irq_handler_t ) r_irq_handler,
-                   IRQF_TRIGGER_RISING,
-                   GPIO_ANY_GPIO_DESC,
-                   NULL)) {
-        printk("Irq Request failure\n");
-        return;
-    }
-
-   return;
+    return;
 }
 
 
@@ -131,7 +133,7 @@ void r_int_config(void) {
 /****************************************************************************/
 
 void r_int_release(void) {
-    free_irq(irq_any_gpio, NULL);
+    free_irq(irq_gpio0, NULL);
     gpio_free(GPIO_ANY_GPIO);
 }
 
