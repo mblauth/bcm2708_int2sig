@@ -48,13 +48,10 @@ module_param(third_handling_task_pid, int, S_IRUGO | S_IWUSR);
 
 unsigned int last_interrupt_time = 0;
 static uint64_t epochMilli;
-static struct timer_list my_timer;
 
 short int irq_gpio0 = 0;
 short int irq_gpio1 = 0;
 short int irq_gpio2 = 0;
-
-struct task_struct* third_handling_task;
 
 unsigned int millis (void)
 {
@@ -71,21 +68,21 @@ __always_inline struct task_struct* task_for_pid(long pid) {
     return pid_task(find_vpid(pid), PIDTYPE_PID);
 }
 
-void load_tasks_for_pids(unsigned long data) {
-    printk("loading tasks\n");
-    third_handling_task = task_for_pid(third_handling_task_pid);
-    mod_timer(&my_timer, jiffies + msecs_to_jiffies(500));
-}
-
 __always_inline irqreturn_t gpio_int_handler(int irq, void *dev_id, struct pt_regs *regs, long recipient_pid) {
+    struct task_struct *task;
     int status;
 
     if(recipient_pid == -1) {
-        printk("interrupt handling task not set\n");
+        //printk("interrupt handling task not set\n");
         return IRQ_HANDLED;
     }
 
-    status = send_sig(22, third_handling_task, 0); // send SIGPOLL
+    task = task_for_pid(recipient_pid);
+    if(!task) {
+        return IRQ_HANDLED;
+    }
+
+    status = send_sig(22, task, 0); // send SIGPOLL
     if (0 > status) {
         printk("error sending signal\n");
         return IRQ_HANDLED;
@@ -191,17 +188,12 @@ int init_module(void)
 
     r_int_config();
 
-    setup_timer(&my_timer, load_tasks_for_pids, 0);
-    mod_timer(&my_timer, jiffies + msecs_to_jiffies(500));
-
     return 0;
 }
 
 void cleanup_module(void)
 {
     printk("unloading bcm2708_int2sig\n");
-
-    del_timer_sync(&my_timer);
 
     r_int_release();
     /* if the timer was mapped (final step of successful module init) */
