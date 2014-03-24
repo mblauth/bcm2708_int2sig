@@ -147,8 +147,8 @@ void r_int_config(void) {
     do_gettimeofday(&tv) ;
     epochMilli = (uint64_t)tv.tv_sec * (uint64_t)1000 + (uint64_t)(tv.tv_usec / 1000) ;
 
-    //config_int(FIRST_GPIO, &irq_gpio0, (irq_handler_t)irq_handler_first_gpio);
-    //config_int(SECOND_GPIO, &irq_gpio1, (irq_handler_t)irq_handler_second_gpio);
+    config_int(FIRST_GPIO, &irq_gpio0, (irq_handler_t)irq_handler_first_gpio);
+    config_int(SECOND_GPIO, &irq_gpio1, (irq_handler_t)irq_handler_second_gpio);
     config_int(THIRD_GPIO, &irq_gpio2, (irq_handler_t)irq_handler_third_gpio);
 
     return;
