@@ -14,28 +14,21 @@
 #include <linux/slab.h>
 #include <linux/gpio.h>
 #include <mach/platform.h>
-#include <mach/gpio.h>
 #include <linux/time.h>
 #include <linux/delay.h>
 
 #include "RPI.h"
 
-// text below will be seen in 'cat /proc/interrupt' command
+// text below will show up in /proc/interrupt
 #define GPIO_ANY_GPIO_DESC "GPIO Interrupt to POSIX signal"
 
 #define FIRST_GPIO 2
 #define SECOND_GPIO 3
 #define THIRD_GPIO 8
 
-volatile unsigned int val;
-
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marvin Blauth");
 MODULE_DESCRIPTION("A module translating GPIO Interrupts to POSIX signals");
-
-static char *msg=NULL;
-
-unsigned long flags;
 
 int first_handling_task_pid = -1;
 int second_handling_task_pid = -1;
@@ -53,8 +46,7 @@ short int irq_gpio0 = 0;
 short int irq_gpio1 = 0;
 short int irq_gpio2 = 0;
 
-unsigned int millis (void)
-{
+unsigned int millis (void) {
     struct timeval tv ;
     uint64_t now ;
 
@@ -136,10 +128,6 @@ void config_int(int gpio, short int *irq_gpio, irq_handler_t handler) {
     }
 }
 
-/****************************************************************************/
-/* This function configures interrupts.                                     */
-/****************************************************************************/
-
 void r_int_config(void) {
 
     struct timeval tv ;
@@ -154,11 +142,6 @@ void r_int_config(void) {
     return;
 }
 
-
-/****************************************************************************/
-/* This function releases interrupts.                                       */
-/****************************************************************************/
-
 void r_int_release(void) {
     //free_irq(irq_gpio0, NULL);
     //free_irq(irq_gpio1, NULL);
@@ -168,17 +151,13 @@ void r_int_release(void) {
     gpio_free(THIRD_GPIO);
 }
 
-int init_module(void)
-{
+int init_module(void) {
 
     printk("loading bcm2708_int2sig\n");
 
 
-    gpio.map     = ioremap(GPIO_BASE, 4096);//p->map;
+    gpio.map     = ioremap(GPIO_BASE, 4096);
     gpio.addr    = (volatile unsigned int *)gpio.map;
-    msg          = (char *)kmalloc(8, GFP_KERNEL);
-    if (msg !=NULL)
-        printk("malloc allocator address: 0x%x\n", msg);
 
     //INP_GPIO(FIRST_GPIO);
     //INP_GPIO(SECOND_GPIO);
@@ -191,19 +170,12 @@ int init_module(void)
     return 0;
 }
 
-void cleanup_module(void)
-{
+void cleanup_module(void) {
     printk("unloading bcm2708_int2sig\n");
 
     r_int_release();
-    /* if the timer was mapped (final step of successful module init) */
-    if (gpio.addr){
-        /* release the mapping */
+    if (gpio.addr) {
         iounmap(gpio.addr);
-    }
-    if (msg){
-        /* release the malloc */
-        kfree(msg);
     }
 }
 
